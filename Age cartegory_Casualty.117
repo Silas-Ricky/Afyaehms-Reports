@@ -1,0 +1,84 @@
+-- MoH 717
+-- Over 5 and Below 5yrs
+SELECT ageGroup,N_Male,N_FeMale,R_Male,R_FeMale FROM 
+(
+SELECT concept_id,final1.ageGroup,IFNULL(N_Male,0)AS 'N_Male',IFNULL(N_FeMale,0)AS 'N_FeMale',IFNULL(R_Male,0)AS 'R_Male',IFNULL(R_FeMale,0)AS 'R_FeMale' FROM 
+(
+SELECT * FROM
+(
+SELECT concept_id,CASE WHEN concept_id=1 THEN 'Under 1 Year' 
+WHEN concept_id=2 THEN '1 - 4 Years'
+WHEN concept_id=3 THEN '5 - 120 Years' END AS 'ageGroup'
+FROM concept
+)asd
+WHERE ageGroup IS NOT NULL
+)final1
+LEFT JOIN 
+(
+SELECT sag1.ageGroup,
+SUM(IFNULL(sag1.nm,0)) AS 'N_Male',
+SUM(IFNULL(sag1.nf,0)) AS 'N_FeMale',
+SUM(IFNULL(sag1.rm,0)) AS 'R_Male',
+SUM(IFNULL(sag1.rf,0)) AS 'R_FeMale'
+
+FROM 
+(
+SELECT sag.ageGroup,
+CASE WHEN sag.encounter_type=5 AND sag.gender LIKE 'M' THEN sag.total_count END AS 'nm',
+CASE WHEN sag.encounter_type=5 AND sag.gender LIKE 'F' THEN sag.total_count END AS 'nf',
+CASE WHEN sag.encounter_type=6 AND sag.gender LIKE 'M' THEN sag.total_count END AS 'rm',
+CASE WHEN sag.encounter_type=6 AND sag.gender LIKE 'F' THEN sag.total_count END AS 'rf'
+FROM
+(
+	SELECT COUNT(asd1.patient_id) AS total_count,asd1.encounter_type,asd1.gender,asd1.ageGroup
+	FROM
+	(
+	SELECT asd.patient_id,asd.encounter_type,asd.gender,asd.age,
+	CASE WHEN asd.age < 1 THEN 'Under 1 Year' 
+	WHEN asd.age >=1 AND asd.age<5 THEN '1 - 4 Years'
+	WHEN asd.age >=5 AND asd.age<15 THEN '5 - 120 Years'
+	END AS 'ageGroup'
+	FROM
+	(SELECT e.patient_id,e.encounter_type,ps.gender,ps.age
+	FROM `encounter` e
+	INNER JOIN patient_search ps ON ps.patient_id=e.patient_id
+	WHERE encounter_type IN(5,6)
+	AND DATE(e.date_created) BETWEEN ? AND ?
+	)asd
+	)asd1
+	GROUP BY encounter_type,gender,ageGroup
+)sag
+)sag1
+GROUP BY ageGroup
+)final
+ON final1.ageGroup=final.ageGroup
+ORDER BY final1.concept_id
+)
+
+-- Casualty
+SELECT 
+     COUNT(patient_id)
+FROM(
+        SELECT e.patient_id, 
+               pi.identifier, 
+			  SUM(IF(o.concept_id =5119,o.value_numeric, NULL)) AS ENT_clinic,
+			  SUM(IF(o.concept_id =5118,o.value_numeric, NULL)) AS eye_clinic,
+			  SUM(IF(o.concept_id =5698,o.value_numeric, NULL)) AS TB_clinic,
+			  SUM(IF(o.concept_id =1073,o.value_numeric, NULL)) AS STI_clinic,
+			  SUM(IF(o.concept_id =2985,o.value_numeric, NULL)) AS Psychiatry_clinic,
+			  SUM(IF(o.concept_id =5121,o.value_numeric, NULL)) AS Othopeadic_clinic,
+			  SUM(IF(o.concept_id  in (5122,5707,4633,2310,3305),o.value_numeric, NULL )) AS Other_special_clinics,
+               DATE(e.encounter_datetime)as encDate
+              
+        FROM encounter e
+             INNER JOIN patient_identifier pi ON pi.patient_id = e.patient_id AND pi.voided=0 AND pi.identifier_type=3 AND pi.voided=0
+             INNER JOIN person p ON p.person_id = e.patient_id AND p.voided=0
+             INNER JOIN patient pa ON pa.patient_id = e.patient_id AND pa.voided=0
+             LEFT OUTER JOIN  obs o ON o.encounter_id=e.encounter_id AND o.voided=0 and o.concept_id in (5119,5118,5698,1073,2985,5121,5122,5707,4633,2310,3305)
+             LEFT OUTER JOIN concept_name cn ON cn.concept_id=o.value_coded AND cn.concept_name_type='FULLY_SPECIFIED'
+        WHERE encounter_type IN (1,2,3,4,12,19)
+              AND date(e.encounter_datetime) between ':fromDate' AND ':toDate'  
+        GROUP BY pa.patient_id,
+        HAVING 
+    
+);
